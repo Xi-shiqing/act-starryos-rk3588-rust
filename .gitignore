@@ -1,0 +1,14 @@
+# 大文件 / 可由脚本重新生成的产物，不入库
+data/npy/
+data/frames/
+data/dataset_calib*.txt
+data/eval_turn.txt
+model/*.onnx
+model/*.rknn
+
+# 临时文件
+__pycache__/
+*.pyc
+*.model
+*.data
+*.quantization.cfg
