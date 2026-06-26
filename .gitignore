@@ -12,3 +12,7 @@ __pycache__/
 *.model
 *.data
 *.quantization.cfg
+
+# Phase 2（板上推理程序）
+board/act-rknn/target/
+board/rknn_runtime/aarch64/*.so

@@ -1,0 +1,8 @@
+# 交叉编译到 RK3588（aarch64-gnu，对应板上普通 Linux）。
+# 链接器用 bootlin 自带 sysroot 的 aarch64 gcc。
+[target.aarch64-unknown-linux-gnu]
+linker = "/root/OScompetition/toolchains/aarch64--glibc--stable-2025.08-1/bin/aarch64-linux-gcc"
+rustflags = [
+    # 运行时在板上从可执行文件同目录找 librknnrt.so
+    "-C", "link-arg=-Wl,-rpath,$ORIGIN",
+]

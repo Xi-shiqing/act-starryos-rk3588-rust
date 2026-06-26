@@ -1,0 +1,13 @@
+[package]
+name = "act-rknn"
+version = "0.1.0"
+edition = "2021"
+description = "ACT 模型在 RK3588 NPU 上的推理（RKNN C API + Rust FFI），可交叉编译到 aarch64"
+
+[dependencies]
+# 纯 Rust JPEG 解码，与任务三 act-rust 一致
+jpeg-decoder = "0.3"
+
+[profile.release]
+opt-level = 3
+lto = true
