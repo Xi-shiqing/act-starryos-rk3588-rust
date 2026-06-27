@@ -2,6 +2,7 @@ mod rknn_sys;
 use rknn_sys::*;
 use std::os::raw::c_void;
 use std::ptr;
+use std::time::Instant;
 
 // ---- 固定的模型 / 数据集参数（与 act-rust 一致）----------------------------
 const IMAGE_W: usize = 224;
@@ -123,7 +124,7 @@ struct Args {
 
 fn parse_args() -> Args {
     let mut a = Args {
-        model: "act_rk3588_hybrid_backbone.rknn".to_string(),
+        model: "act_rk3588_fp16.rknn".to_string(),
         image: "frame_000227.jpg".to_string(),
         state: [0.0, 0.0],
         deadband: 0.0,
@@ -178,13 +179,72 @@ fn run() -> Result<(), String> {
     }
     eprintln!("rknn_init OK (ctx={ctx})");
 
-    // 3) 预处理
-    let rgb = decode_jpeg(&args.image)?;
-    eprintln!("image: {} ({}x{})", args.image, rgb.w, rgb.h);
-    let mut image_nhwc = preprocess_image_nhwc(&rgb);
+    // 3) 收集待推理的帧：--image 指向目录则取目录下全部 *.jpg（排序），否则单帧。
+    //    板上不便传数据，故支持一次烧录、一次启动跑完多帧。
+    let frames = collect_frames(&args.image)?;
+    eprintln!("frames to run: {}", frames.len());
+
+    // state 对所有帧相同（默认 (0,0)）
     let mut state_norm = normalize_state(args.state);
 
-    // 4) 设置输入：image(NHWC f32) + state(f32)
+    let mut total_ms = 0.0f64;
+    let mut ok = 0usize;
+    for path in &frames {
+        match infer_one(ctx, path, &mut state_norm, args.deadband) {
+            Ok((left, right, diff, decision, ms)) => {
+                ok += 1;
+                total_ms += ms;
+                let name = std::path::Path::new(path)
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or(path);
+                println!(
+                    "{name}: left_vel={left:.6} right_vel={right:.6} diff={diff:+.6} decision={decision} ({ms:.1} ms)"
+                );
+            }
+            Err(e) => eprintln!("{path}: ERROR {e}"),
+        }
+    }
+    if ok > 0 {
+        println!("---");
+        println!("summary: {ok}/{} frames, avg inference {:.1} ms", frames.len(), total_ms / ok as f64);
+    }
+
+    unsafe { rknn_destroy(ctx) };
+    Ok(())
+}
+
+/// 列出待推理帧：路径是目录→目录内全部 .jpg（按文件名排序）；否则当作单个文件。
+fn collect_frames(path: &str) -> Result<Vec<String>, String> {
+    let p = std::path::Path::new(path);
+    if p.is_dir() {
+        let mut v: Vec<String> = std::fs::read_dir(p)
+            .map_err(|e| format!("read_dir {path}: {e}"))?
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| p.extension().and_then(|s| s.to_str()).map(|s| s.eq_ignore_ascii_case("jpg")).unwrap_or(false))
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect();
+        v.sort();
+        if v.is_empty() {
+            return Err(format!("no .jpg under {path}"));
+        }
+        Ok(v)
+    } else {
+        Ok(vec![path.to_string()])
+    }
+}
+
+/// 对单帧做一次完整推理，返回 (左轮速, 右轮速, diff, 判向, 推理耗时ms)。
+/// 计时只覆盖 rknn_run（NPU 实际计算），不含 JPEG 解码/预处理。
+fn infer_one(
+    ctx: rknn_context,
+    image_path: &str,
+    state_norm: &mut [f32],
+    deadband: f32,
+) -> Result<(f32, f32, f32, &'static str, f64), String> {
+    let rgb = decode_jpeg(image_path)?;
+    let mut image_nhwc = preprocess_image_nhwc(&rgb);
+
     let mut inputs = [
         rknn_input {
             index: 0,
@@ -205,18 +265,16 @@ fn run() -> Result<(), String> {
     ];
     let rc = unsafe { rknn_inputs_set(ctx, inputs.len() as u32, inputs.as_mut_ptr()) };
     if rc != 0 {
-        unsafe { rknn_destroy(ctx) };
         return Err(format!("rknn_inputs_set failed: {rc}"));
     }
 
-    // 5) 推理
+    let t0 = Instant::now();
     let rc = unsafe { rknn_run(ctx, ptr::null_mut()) };
+    let ms = t0.elapsed().as_secs_f64() * 1000.0;
     if rc != 0 {
-        unsafe { rknn_destroy(ctx) };
         return Err(format!("rknn_run failed: {rc}"));
     }
 
-    // 6) 取输出（want_float=1 让 NPU 把输出转成 f32）
     let mut outputs = [rknn_output {
         want_float: 1,
         is_prealloc: 0,
@@ -226,31 +284,18 @@ fn run() -> Result<(), String> {
     }];
     let rc = unsafe { rknn_outputs_get(ctx, 1, outputs.as_mut_ptr(), ptr::null_mut()) };
     if rc != 0 {
-        unsafe { rknn_destroy(ctx) };
         return Err(format!("rknn_outputs_get failed: {rc}"));
     }
     let n = (outputs[0].size as usize) / 4;
     let action_norm: Vec<f32> =
         unsafe { std::slice::from_raw_parts(outputs[0].buf as *const f32, n).to_vec() };
+    unsafe { rknn_outputs_release(ctx, 1, outputs.as_mut_ptr()) };
 
-    // 7) 反归一化 + 判向（取动作链第一步）
     let action = denormalize_action(&action_norm);
     let left = action[0];
     let right = action.get(1).copied().unwrap_or(0.0);
-    let gripper = action.get(2).copied().unwrap_or(0.0);
     let diff = left - right;
-    let decision = turn_decision(diff, args.deadband);
-
-    println!("output_len: {n}");
-    println!(
-        "first_step: left_vel={left:.6} right_vel={right:.6} gripper_target={gripper:.6e} diff={diff:.6} decision={decision}"
-    );
+    let decision = turn_decision(diff, deadband);
     let _ = ACTION_CHUNK;
-
-    // 8) 清理
-    unsafe {
-        rknn_outputs_release(ctx, 1, outputs.as_mut_ptr());
-        rknn_destroy(ctx);
-    }
-    Ok(())
+    Ok((left, right, diff, decision, ms))
 }

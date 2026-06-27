@@ -1,4 +1,4 @@
-# RK3588 板上推理程序（Rust + RKNN FFI）
+# RK3588 板推理程序
 
 ```
 act-rknn/                Rust crate
@@ -28,22 +28,36 @@ cargo build --release --target aarch64-unknown-linux-gnu
 
 ## 部署 & 运行（在 RK3588 上）
 
+部署模型用 fp16。`--image` 给目录会批量跑目录下全部 .jpg。
+
 ```bash
 # 把可执行文件、librknnrt.so、.rknn 模型、测试图放到同一目录
-#   act-rknn  librknnrt.so  act_rk3588_hybrid_backbone.rknn  frame_000227.jpg
-./act-rknn --model act_rk3588_hybrid_backbone.rknn --image frame_000227.jpg --state 0 0
-# 期望输出：first_step: ... diff=+0.00xx decision=right
+#   act-rknn  librknnrt.so  act_rk3588_fp16.rknn  frames/
+./act-rknn --model act_rk3588_fp16.rknn --image frames --state 0 0
+# 每帧输出：<frame>: left_vel=.. right_vel=.. diff=±.. decision=left/right (xx ms)
 ```
 
 可执行文件 RPATH 设为 `$ORIGIN`，因此 `librknnrt.so` 放同目录即可被找到。
+一键打包部署目录见 `../scripts/package_board.sh`（产出 `../board_pkg/linux/`）。
+
+## Orange Pi 5 Plus / RK3588 / Ubuntu 22.04 实测
+
+已在 NPU 上跑通（RKNPU driver v0.9.6 + librknnrt 2.3.2）。实测结论与 RKNN 模拟器相反：
+
+| 模型 | 判向 vs gt | 右召回(gt右=19) | 时延 | 峰值内存 |
+|---|---|---|---|---|
+| fp16（部署） | 46/56 | 18/19 | 24.7 ms | 206 MB |
+| hybrid（模拟器里最优） | 40/56 | 3/19 | 20 ms | ~200 MB |
+| full-int8 | 31/56 | 18/19 | ~18 ms | ~180 MB |
+
+模拟器判定无损最优的混合量化，在真硬件上反而最差——轮速差信号(~0.005)与 NPU 量化噪声(~0.006)同量级。故部署模型选用 fp16。
+
+完整对比见 [`../results/board_rk3588_real.md`](../results/board_rk3588_real.md)。
 
 
 ## 关于 musl / StarryOS
 
-x86 机器侧已验证
-
-唯一只能上板验证的是 `rknn_run` 在 NPU 上的实际执行。
-
+接下来要做是将 starryOS 烧到板子上，再在上面进行推理。
 
 官方 `librknnrt.so` 是 glibc(aarch64) 链接的，所以本程序当前目标是 `aarch64-unknown-linux-gnu`，对应 RK3588 上的普通 Linux。
 

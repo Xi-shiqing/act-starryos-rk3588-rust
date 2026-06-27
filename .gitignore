@@ -16,3 +16,6 @@ __pycache__/
 # Phase 2（板上推理程序）
 board/act-rknn/target/
 board/rknn_runtime/aarch64/*.so
+
+# 板上部署包（由 scripts/package_board.sh 重建）
+board_pkg/
