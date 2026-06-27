@@ -19,3 +19,13 @@ board/rknn_runtime/aarch64/*.so
 
 # 板上部署包（由 scripts/package_board.sh 重建）
 board_pkg/
+
+# StarryOS 载荷（106MB，由 assemble_payload.sh 重建）
+starryos_npu/app/payload/
+
+# StarryOS 交付大产物（内核/rootfs/dtb，可重建，留 README）
+starryos_npu/deliverable/*.img
+starryos_npu/deliverable/*.bin
+starryos_npu/deliverable/*.dtb
+starryos_npu/research/rknpu_ioctl.h
+starryos_npu/*.zip

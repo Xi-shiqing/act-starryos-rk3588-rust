@@ -1,0 +1,24 @@
+# StarryOS Orange Pi 5 Plus 板级测试配置：开机自动跑 ACT NPU 推理。
+# 用法（在 tgoskits 内）：
+#   cargo xtask starry app board -t orangepi-5-plus-act -b OrangePi-5-Plus \
+#     --board-config <本文件>
+board_type = "OrangePi-5-Plus"
+shell_prefix = "root@starry:/root #"
+shell_init_cmd = '''
+echo ACT_NPU_BEGIN && cd /act_rknn && \
+export LD_LIBRARY_PATH=/act_rknn/lib:/usr/local/lib:/usr/lib/aarch64-linux-gnu:${LD_LIBRARY_PATH:-} && \
+./act-rknn --model model/act_rk3588_fp16.rknn --image frames --state 0 0 && \
+echo ACT_NPU_DONE
+'''
+success_regex = [
+  "(?m)^ACT_NPU_DONE$",
+  "(?m)^summary: .* frames",
+]
+fail_regex = [
+  "(?i)\\bpanic(?:ked)?\\b",
+  "(?m)^rknn_init failed.*$",
+  "(?m)^error: .*$",
+  "(?i)error while loading shared libraries",
+  "(?m)^(act-rknn|sh): .*not found",
+]
+timeout = 120
