@@ -18,13 +18,26 @@ ACT 输出的极小的轮速差，对输出端的量化噪声极其敏感。
 
 实验还发现只要量化任何一个 encoder 层就会出错，但是只量化卷积骨干则无损失。
 
+## 上板实测与模拟器结论结论不同
+
+后续拿到 Orange Pi 5 Plus 后，在 Ubuntu 22.04 / RKNPU driver v0.9.6 进行实测，上面基于 RKNN 模拟器得出的混合量化是无损最优的结论不成立：
+
+| 模型(真 NPU) | 判向 vs gt | 右召回(gt右=19) | 时延 | 峰值内存 |
+|---|---|---|---|---|
+| fp16 | 46/56 | 18/19 | 24.7 ms | 206 MB |
+| hybrid | 40/56 | 3/19 | 20 ms | ~200 MB |
+| full-int8 | 31/56 | 18/19 | ~18 ms | ~180 MB |
+
+模拟器判定无损的混合量化，在真 NPU 上反而最差。根因：本模型轮速差信号极小（~0.005），与真硬件量化噪声（~0.006）同量级，足以使得临界帧方向相反。而 RKNN 模拟器数值精度高于真硬件，在模拟器上无损到板子上就不成立了。所以最终部署模型选 fp16（46/56 ≈ fp32 基线 47/56，已跑满模型精度上限）。
+完整实测见 [`results/board_rk3588_real.md`](results/board_rk3588_real.md)。
+
 ## 目录结构
 
 ```
 model/
   act_rknn_4d.onnx                 NPU 友好的 4D 输入 ONNX（image[1,3,224,224]+state[1,2]）
-  act_rk3588_fp16.rknn             fp16（无量化，最忠实，101.7MB）
-  act_rk3588_hybrid_backbone.rknn  混合量化：骨干INT8+transformerFP16（推荐部署，90MB，零判向损失）
+  act_rk3588_fp16.rknn             fp16（最终部署：真硬件实测最准，101.7MB）
+  act_rk3588_hybrid_backbone.rknn  混合量化：骨干INT8+transformerFP16（90MB，模拟器无损但真硬件掉精度）
   act_rk3588_int8.rknn             full-INT8（最小52.7MB，有损，作对照）
 tools/
   export_rknn_onnx.py              PyTorch checkpoint -> 4D 输入 ONNX
