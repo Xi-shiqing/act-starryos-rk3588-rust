@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")/.."; pwd)"          # .../starryos_npu
 DELIV="$HERE/deliverable"
@@ -9,6 +10,25 @@ IMG="$OUT/starryos-act-orangepi5plus-sd.img"
 mkdir -p "$OUT"
 cleanup(){ umount "$WORK/m" 2>/dev/null||true; [ -n "${LOOP:-}" ]&&losetup -d "$LOOP" 2>/dev/null||true; rm -rf "$WORK"; }
 trap cleanup EXIT
+
+# ── 前置检查 ────────────────────────────────────────────────────────────
+# 需要 root（losetup/mount/debugfs）
+[ "$(id -u)" -eq 0 ] || { echo "需要 root 运行（losetup/mount）。请用 sudo。" >&2; exit 1; }
+# 需要的工具
+for t in sgdisk e2fsck resize2fs tune2fs debugfs mkfs.ext4 losetup python3 gzip sha256sum; do
+  command -v "$t" >/dev/null || { echo "缺少工具：$t（Debian/Ubuntu: apt install gdisk e2fsprogs util-linux）" >&2; exit 1; }
+done
+# 引导块：脚本读未压缩的 .bin；仓库里只入库了 .bin.gz，缺则自动解压
+[ -e "$BOOTBLOB" ] || { [ -e "$BOOTBLOB.gz" ] && gzip -dkf "$BOOTBLOB.gz"; }
+# 校验四个输入是否就位（仓库默认不含这些大产物，需先由上游链产出）
+miss=0
+chk(){ [ -e "$1" ] || { echo "缺少输入：$1" >&2; echo "        └ $2" >&2; miss=1; }; }
+chk "$DELIV/rootfs-aarch64-act.img"            "rootfs（musl 基底+注入 glibc+/act_rknn 载荷），由 app/inject_rootfs.sh 产出"
+chk "$DELIV/starryos-orangepi5plus-rknpu.bin"  "含 rknpu 驱动的 StarryOS 内核 Image，由 tgoskits 编出（cargo starry build）"
+chk "$DELIV/orangepi-5-plus.dtb"               "设备树（含 NPU 节点），随内核产出"
+chk "$BOOTBLOB"                                 "RK3588 引导块；解压 bootloader/bootblob.bin.gz 即可（仓库已含 .gz）"
+[ "$miss" -eq 0 ] || { echo "── 缺输入，终止。这些大产物默认不入库，重建方法见 starryos_npu/如何重建镜像.md ──" >&2; exit 1; }
+# ───────────────────────────────────────────────────────────────────────
 
 # 1) 取 rootfs，收缩到 320MB，去 orphan_file，加 /boot + autorun 钩子
 cp "$DELIV/rootfs-aarch64-act.img" "$R"
