@@ -29,3 +29,11 @@ starryos_npu/deliverable/*.bin
 starryos_npu/deliverable/*.dtb
 starryos_npu/research/rknpu_ioctl.h
 starryos_npu/*.zip
+
+# 整盘可烧镜像与校验（大，由 app/build_sd_image.sh 重建）
+starryos_npu/sdcard/*.img
+starryos_npu/sdcard/*.img.gz
+starryos_npu/sdcard/*.zip
+starryos_npu/sdcard/SHA256SUMS
+# 抠出的 RK3588 引导块原始 16MB（保留压缩版 .gz 即可）
+starryos_npu/bootloader/bootblob.bin
