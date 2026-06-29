@@ -30,10 +30,11 @@ chk "$BOOTBLOB"                                 "RK3588 引导块；解压 bootl
 [ "$miss" -eq 0 ] || { echo "── 缺输入，终止。这些大产物默认不入库，重建方法见 starryos_npu/如何重建镜像.md ──" >&2; exit 1; }
 # ───────────────────────────────────────────────────────────────────────
 
-# 1) 取 rootfs，收缩到 320MB，去 orphan_file，加 /boot + autorun 钩子
+# 1) 取 rootfs，收缩到 512MB，去 orphan_file，加 /boot + autorun 钩子。
+# 666 帧版额外带 frames_rgb224.bin（约 96MB），320MB 已不够。
 cp "$DELIV/rootfs-aarch64-act.img" "$R"
 e2fsck -fy "$R" >/dev/null 2>&1 || true
-resize2fs "$R" 81920                       # 81920 x 4k = 320MB
+resize2fs "$R" 131072                      # 131072 x 4k = 512MB
 # 对齐板子 known-good ext4 特性集（StarryOS 已验证能 sync）：去 orphan_file、加 metadata_csum
 tune2fs -O ^orphan_file "$R"               # rsext4 不维护 orphan_file 写回 → 必去
 tune2fs -O metadata_csum "$R"              # 基准有 metadata_csum；rsext4 支持(config.rs 默认集含)
@@ -82,8 +83,16 @@ cat > "$WORK/m/act_rknn/init.sh" <<'RUN'
 cd /act_rknn
 export LD_LIBRARY_PATH=/act_rknn/lib:/usr/local/lib:/usr/lib/aarch64-linux-gnu:${LD_LIBRARY_PATH:-}
 echo "==== ACT NPU inference start ===="
-./act-rknn --model model/act_rk3588_fp16.rknn --image frames --state 0 0
+echo "io-mode default: zc-float (RKNN zero-copy, no outputs_get/release)"
+echo "image source: frames_rgb224.bin (pre-resized RGB224 pack, no JPEG decode on board)"
+echo "---- smoke: first 120 frames, must pass frame_000096 ----"
+ACT_TRACE=1 ./act-rknn --model model/act_rk3588_fp16.rknn --image frames --rgb-pack frames_rgb224.bin --state 0 0 --loop open --io-mode zc-float --count 120
+echo "---- full open-loop (666 frames, state=0,0) ----"
+./act-rknn --model model/act_rk3588_fp16.rknn --image frames --rgb-pack frames_rgb224.bin --state 0 0 --loop open --io-mode zc-float
+echo "---- full closed-loop (666 frames, feedback) ----"
+./act-rknn --model model/act_rk3588_fp16.rknn --image frames --rgb-pack frames_rgb224.bin --state 0 0 --loop closed --io-mode zc-float
 echo "==== ACT NPU inference end (exit=$?) ===="
+echo "manual JPEG repro command if needed: ACT_TRACE=1 ./act-rknn --model model/act_rk3588_fp16.rknn --image frames --state 0 0 --loop open --io-mode zc-float --count 120"
 RUN
 chmod +x "$WORK/m/act_rknn/init.sh"
 cat > "$WORK/m/usr/bin/starry-run-case-tests" <<'HOOK'
@@ -101,7 +110,7 @@ e2fsck -fy "$R" >/dev/null 2>&1 || true
 debugfs -w -R 'ssv state 2' "$R" >/dev/null 2>&1
 
 # 2) 整盘 GPT：引导块@扇区64，根分区@扇区32768（GPT 名=rootfs）
-truncate -s 360M "$IMG"
+truncate -s 640M "$IMG"
 sgdisk --zap-all "$IMG" >/dev/null 2>&1 || true
 sgdisk -n 1:32768:0 -t 1:8300 -c 1:"rootfs" "$IMG" >/dev/null
 dd if="$BOOTBLOB" of="$IMG" bs=512 seek=64    conv=notrunc status=none

@@ -32,7 +32,8 @@ research/
 act-rknn                 我们的推理程序（aarch64-gnu，链 librknnrt.so）
 lib/librknnrt.so         RKNN 运行时（建议改用 tgoskits 镜像里匹配 rknpu 驱动的那份，见下）
 model/act_rk3588_fp16.rknn  部署模型（真硬件实测最准）
-frames/                  56 个测试帧
+frames/                  完整 666 帧 JPEG 测试序列（保留作展示/复现旧输入路径）
+frames_rgb224.bin        完整 666 帧预 resize 的连续 RGB224 输入包（默认运行路径，绕开板上 JPEG 解码卡点）
 init.sh                  开机命令
 ```
 
@@ -62,7 +63,7 @@ cargo xtask starry app board -t orangepi-5-plus-act -b OrangePi-5-Plus \
 - 将镜像烧到 TF 卡 → 插开发板上电。
 - 串口（USB-TTL，1500000 baud）看输出；开机会自动跑（board toml 的 `shell_init_cmd`），
   或手动 `sh /act_rknn/init.sh`。
-- 期望串口打印每帧 `... decision=left/right (xx ms)` 和 `summary: 56/56 frames, avg inference .. ms`，
+- 期望串口打印 `image source: frames_rgb224.bin`，每帧 `... decision=left/right (xx ms)` 和 `summary: 666/666 frames, avg inference .. ms`，
   最后 `ACT_NPU_DONE`。拿 `EXPECTED.csv` 肉眼对照判向。
 
 ## 验收目标

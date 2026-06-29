@@ -11,7 +11,7 @@
 | `rootfs-aarch64-act.img` | 根文件系统（1GB ext4）：musl 基底 + **注入的 aarch64 glibc 运行时** + **`/act_rknn` 我们的推理程序** |
 | `orangepi-5-plus-uboot.toml` | U-Boot 引导配置（串口 /dev/ttyUSB0 @ 1500000 + dtb） |
 
-`/act_rknn/` 里：`act-rknn`(我们的程序) + `lib/librknnrt.so`(2.3.2) + `model/act_rk3588_fp16.rknn` + `frames/`(56帧) + `init.sh`。
+`/act_rknn/` 里：`act-rknn`(我们的程序) + `lib/librknnrt.so`(2.3.2) + `model/act_rk3588_fp16.rknn` + `frames/`(完整 666 帧) + `init.sh`。
 
 ## 怎么构建出来的（我们自己做的部分）
 
@@ -32,7 +32,7 @@
 **路 B：可烧 SD 整盘镜像**
 把 RK3588 U-Boot 引导块（idbloader + u-boot.itb，可从开发板现有 Linux 提取）+ boot 分区（`extlinux.conf` 指向内核 Image + dtb）+ 本 rootfs，组装成整盘 `.img`，`dd`/Etcher 烧 TF 卡。
 
-启动后串口应打印每帧 `... decision=left/right (xx ms)` 与 `summary: 56/56 frames`。拿 `/act_rknn/EXPECTED.csv` 对照判向。
+启动后串口应打印每帧 `... decision=left/right (xx ms)` 与 `summary: 666/666 frames`。拿 `/act_rknn/EXPECTED.csv` 对照判向。
 
 ## 状态
 
@@ -42,6 +42,6 @@
   + librknnrt 成功加载、解析、跑到 `rknn_init`，仅因 x86 无 NPU 设备而停在
   `failed to open rknpu module`——而 StarryOS 的 rknpu 驱动在板上正好提供该设备。
   （此验证还抓出并修复了一个真 bug：libstdc++ 误注入成 gdb 的 .py 脚本。复现见 `../app/verify_qemu.sh`）
-- ⏳ 上板启动 + 真 NPU 实测：需在开发板上烧卡 + 串口（本文撰写时开发板离线）。这是唯一只能上板做的一步。
+- ✅ 真硬件上板跑通 ACT 推理，结果与在 Ubuntu 22.04 上实测一致
 
 可复现脚本：`../app/inject_rootfs.sh`（注入 glibc+载荷）、`../app/verify_qemu.sh`（qemu 验证）。

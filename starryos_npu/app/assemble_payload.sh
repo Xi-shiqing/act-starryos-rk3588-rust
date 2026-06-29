@@ -9,6 +9,7 @@ rm -rf "$OUT"; mkdir -p "$OUT/lib" "$OUT/model" "$OUT/frames"
 cp "$SRC/act-rknn"                       "$OUT/"
 cp "$SRC/librknnrt.so"                   "$OUT/lib/"
 cp "$SRC/act_rk3588_fp16.rknn"           "$OUT/model/"
+cp "$SRC/frames_rgb224.bin"              "$OUT/"
 cp "$SRC"/frames/*.jpg                    "$OUT/frames/"
 cp "$ROOT/starryos_npu/app/init.sh"      "$OUT/"
 cp "$SRC/EXPECTED.csv"                    "$OUT/" 2>/dev/null || true

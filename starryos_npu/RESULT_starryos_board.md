@@ -2,6 +2,51 @@
 
 自烧 TF 卡（`sdcard/` 同名一键包）烧入开发板，StarryOS 启动 → 真 RKNPU 加载 fp16 模型 → 对 56 个明确转向帧推理，串口完整输出。
 
+## 666 帧 RGBPack 版
+
+最新镜像把完整 666 帧预处理为 `frames_rgb224.bin` 连续 RGB224 输入包，板上不再逐帧 JPEG 解码。该版本已在 Orange Pi 5 Plus / StarryOS / 真 RKNPU 上跑完：
+
+```text
+image source: frames_rgb224.bin (pre-resized RGB224 pack, no JPEG decode on board)
+---- smoke: first 120 frames, must pass frame_000096 ----
+summary: 120/120 frames, avg inference 34.8 ms
+---- full open-loop (666 frames, state=0,0) ----
+summary: 666/666 frames, avg inference 34.6 ms
+---- full closed-loop (666 frames, feedback) ----
+summary: 666/666 frames, avg inference 34.6 ms
+==== ACT NPU inference end (exit=0) ====
+```
+
+产物：
+
+- `results/666帧_板子-StarryOS真NPU_RGBPack_开环.csv`
+- `results/666帧_板子-StarryOS真NPU_RGBPack_闭环.csv`
+- `results/gif/666帧_板子-StarryOS真NPU_RGBPack_开环.gif`
+- `results/gif/666帧_板子-StarryOS真NPU_RGBPack_闭环.gif`
+
+开环与原模型 fp32 对照：全 666 判向一致 642/666 = 96.4%，明确转向帧（`|diff|>=0.002`）一致 489/489 = 100%，`diff` 相关系数 0.9954。
+
+## 第 96 帧卡点定位
+
+旧 JPEG 路径在串口中停在：
+
+```text
+frame_000095.jpg ... OK
+[dec]
+```
+
+`[dec]` 在读取/解码下一帧前打印；若进入 NPU 会继续出现 `[npu>]`。因此旧版本卡在 `frame_000096.jpg` 的 JPEG 文件读取/解码/预处理阶段，尚未进入 RKNPU。
+
+RGBPack 版本同一位置为：
+
+```text
+[pack>][pack<][npu>][npu<][rd]frame_000096.jpg ... OK
+```
+
+所以第 96 帧问题不在 ACT 模型、RKNPU 或 RKNN `rknn_run`，而在 StarryOS 上逐 JPEG 小文件输入链路的累计资源耗尽。RGBPack 是工程绕过方案：把 JPEG 解码前移到服务器，板上只顺序读连续二进制帧。
+
+## 56 帧早期结果
+
 ## 关键启动日志（成功标志）
 ```
 NPU registered successfully

@@ -5,8 +5,10 @@ edition = "2021"
 description = "ACT 模型在 RK3588 NPU 上的推理（RKNN C API + Rust FFI），可交叉编译到 aarch64"
 
 [dependencies]
-# 纯 Rust JPEG 解码，与任务三 act-rust 一致
-jpeg-decoder = "0.3"
+# 纯 Rust JPEG 解码。禁 default features 关掉 rayon 多线程：
+# StarryOS 上线程/线程池支持有限，多线程解码长跑会卡死（666 帧约第 96 帧静默卡住，
+# 56 帧因未跑到累积点而正常）。baseline JPEG 单线程完全够用，且消除线程不确定性。
+jpeg-decoder = { version = "0.3", default-features = false }
 
 [profile.release]
 opt-level = 3
