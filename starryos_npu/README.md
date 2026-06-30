@@ -44,7 +44,7 @@ init.sh                  开机命令
 
 ### 把 act-rknn 作为 tgoskits app 接入
 仿照 `apps/starry/orangepi-5-plus-uvc-rknn/`：让 `payload/act_rknn/` 被烤进 StarryOS rootfs 的 `/act_rknn/`，
-板级配置用 `app/board-orangepi-5-plus-act.toml`（开机自动 `cd /act_rknn && ./act-rknn --model model/act_rk3588_fp16.rknn --image frames`）。
+板级配置用 `app/board-orangepi-5-plus-act.toml`，开机进入 `/act_rknn` 后运行 `init.sh`。当前默认路径读取 `frames_rgb224.bin` 连续 RGB224 输入包；`frames/` 下的 JPEG 保留作旧输入路径复现与排障。
 
 > librknnrt 版本匹配：优先用 tgoskits 的 YOLOv8 demo 里那份 `librknnrt.so`（与镜像内 rknpu 驱动匹配），
 > 替换我们 `lib/` 下的版本，避免运行时版本不一致。
@@ -55,8 +55,7 @@ init.sh                  开机命令
 cargo xtask starry app board -t orangepi-5-plus-act -b OrangePi-5-Plus \
   --board-config <本仓库>/starryos_npu/app/board-orangepi-5-plus-act.toml
 ```
-（tgoskits 默认走 ostool 远程板卡服务做自动化测试；要**可烧 TF 卡的整盘镜像**，用上游 tgoskits 的烧录流程
-/ 整盘镜像产出步骤，把内核+rootfs 写进 SD。）
+（tgoskits 默认走 ostool 远程板卡服务做自动化测试；本项目最终提交采用**可烧 TF 卡的整盘镜像**，由 `app/build_sd_image.sh` 把引导块、内核、dtb 和 rootfs 组装成 `sdcard/starryos-act-orangepi5plus-sd.img.gz`。）
 
 ### 烧录 + 上板 + 串口
 - 将镜像烧到 TF 卡 → 插开发板上电。

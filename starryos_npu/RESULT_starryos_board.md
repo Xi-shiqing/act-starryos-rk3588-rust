@@ -1,6 +1,6 @@
 # StarryOS + Orange Pi 5 Plus / RK3588 上板推理结果
 
-自烧 TF 卡（`sdcard/` 同名一键包）烧入开发板，StarryOS 启动 → 真 RKNPU 加载 fp16 模型 → 对 56 个明确转向帧推理，串口完整输出。
+自烧 TF 卡（`sdcard/` 同名一键包）烧入开发板，StarryOS 启动 → 真 RKNPU 加载 fp16 模型 → 通过 RGBPack 输入路径完成完整 666 帧连续推理，串口完整输出。
 
 ## 666 帧 RGBPack 版
 

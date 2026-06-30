@@ -1,24 +1,24 @@
 # 关于在 RK3588 上的模型转换与量化
 
 本项目在香橙派 **RK3588** 的 NPU 上推理。
-NPU 推理本身只能在板子上执行，但模型转换、量化、精度验证可以在服务器上用官方 [rknn-toolkit2](https://github.com/airockchip/rknn-toolkit2) 的模拟器完成。本项目当前阶段主要完成这一部分的工作。
+NPU 推理本身只能在板子上执行；模型转换、量化对比和服务器侧模拟器评测使用官方 [rknn-toolkit2](https://github.com/airockchip/rknn-toolkit2) 完成，最终部署结果以真实 RK3588 NPU 和 StarryOS 上板实测为准。
 
 ## 工作概览
 
-把官方 ACT 模型转成 RK3588 的 RKNN 格式，并系统对比了几种量化策略的判向精度（左转/右转）。最终选择把占算力大头的视觉卷积骨干量化成 INT8、transformer 头保留 float16 的混合量化。
+把官方 ACT 模型转成 RK3588 的 RKNN 格式，并系统对比了几种量化策略的判向精度（左转/右转）。服务器侧 RKNN 模拟器中，视觉卷积骨干 INT8、transformer 头 float16 的混合量化表现最好；但真 NPU 实测后发现混合量化在硬件上明显掉精度，最终部署模型定型为 fp16。
 
 > 评测集 = 官方 `eval_manifest.csv` 中全部 **56 个明确转向帧**；判向 = `left_vel − right_vel` 的符号；state=(0,0)。
 > "与 fp32 一致率" = 与 fp32 ONNX 逐帧判向相同的比例。
 
-### 全部改成 INT8 会掉精度，而混合量化能救回
+### 模拟器阶段：全部改成 INT8 会掉精度，而混合量化能救回
 
 ACT 输出的极小的轮速差，对输出端的量化噪声极其敏感。
 - full-INT8 把 state 输入、action 输出、整个 transformer 全部量化成 INT8，细粒度回归输出的符号判别力被量化噪声淹没。
-- 混合量化只量化 vision 卷积（ResNet，50 个 conv 层，是 224×224 图像推理的 FLOPs 大头），把对输出敏感的 transformer encoder/decoder + action_head 保留 float16。结果与 fp32 逐帧判向完全一致，diff 相关系数 0.9985，实测优于纯 fp16。
+- 混合量化只量化 vision 卷积（ResNet，50 个 conv 层，是 224×224 图像推理的 FLOPs 大头），把对输出敏感的 transformer encoder/decoder + action_head 保留 float16。在 RKNN 模拟器里，该方案与 fp32 逐帧判向完全一致，diff 相关系数 0.9985，优于纯 fp16。
 
 实验还发现只要量化任何一个 encoder 层就会出错，但是只量化卷积骨干则无损失。
 
-## 上板实测与模拟器结论结论不同
+## 上板实测与模拟器结论不同
 
 后续拿到 Orange Pi 5 Plus 后，在 Ubuntu 22.04 / RKNPU driver v0.9.6 进行实测，上面基于 RKNN 模拟器得出的混合量化是无损最优的结论不成立：
 
@@ -49,11 +49,11 @@ ACT 输出的极小的轮速差，对输出端的量化噪声极其敏感。
 - 第三方来源、基础版本、增量贡献与授权：[`第三方来源与许可.md`](第三方来源与许可.md)、[`基础版本与增量贡献.md`](基础版本与增量贡献.md)、[`LICENSE`](LICENSE)。
 - 技术文档、答辩 PPT 与演示视频统一采用 CC-BY-SA 4.0；源代码采用 Apache License 2.0。
 
-## 演示复现命令
+## 镜像构建与上板
 
-### 镜像构建与 release 文件
+### 构建 release 镜像
 
-录制“如何烧出可上板镜像”时，先展示重建文档，再执行构建链路：
+重建可上板镜像时，先查看重建说明，再执行构建链路：
 
 ```bash
 cd /root/OScompetition/task2_rknn
@@ -66,100 +66,16 @@ ls -lh starryos_npu/sdcard/starryos-act-orangepi5plus-sd.img.gz
 gzip -t starryos_npu/sdcard/starryos-act-orangepi5plus-sd.img.gz
 ```
 
-`starryos-act-orangepi5plus-sd.img.gz` 即 release 和队友上板测试使用的镜像。Etcher 可以直接选择 `.img.gz` 烧录，不需要先解压。
+`starryos-act-orangepi5plus-sd.img.gz` 即 release 和上板测试使用的镜像。Etcher 可以直接选择 `.img.gz` 烧录，不需要先解压。
 
-### 官方原模型 666 帧
+### 烧录与上板运行
 
-用 Python + ONNX Runtime 跑由原始 PyTorch 权重导出的 fp32 ONNX，生成 666 帧参考结果：
+镜像生成后，烧录和上板运行步骤见 [`starryos_npu/README.md`](starryos_npu/README.md) 的“烧录 + 上板 + 串口”部分。
 
-```bash
-cd /root/OScompetition/task2_rknn
-python3 tools/run_666_原模型_fp32.py
-wc -l results/666帧_原模型_fp32.csv
-tail -n 5 results/666帧_原模型_fp32.csv
-```
+上板结果和第 96 帧问题说明见：
 
-`wc -l` 应为 `667`，表示 1 行表头 + 666 帧结果。
-
-### QEMU + StarryOS 666 帧
-
-QEMU/StarryOS 版本的实现说明见 `/root/OScompetition/repos/act-starryos-qemu-infer/deploy/cpp_onnxruntime/README.md` 和 `DELIVERABLE.md`。录制时必须在 QEMU 启动的 StarryOS shell 内运行静态链接的 `act_static`，不要用 host 侧脚本替代。
-
-先把 666 帧评测数据、manifest 和 ONNX 模型写入 QEMU 使用的 `disk.img`：
-
-```bash
-cd /root/OScompetition/task2_rknn
-bash scripts/prepare_qemu_666_disk.sh
-```
-
-启动 QEMU/StarryOS：
-
-```bash
-cd /root/OScompetition/repos/StarryOS/make
-qemu-system-riscv64 \
-  -m 1G -smp 1 -machine virt -bios default \
-  -kernel ../StarryOS_riscv64-qemu-virt.bin \
-  -device virtio-blk-pci,drive=disk0 \
-  -drive id=disk0,if=none,format=raw,file=disk.img \
-  -nographic -monitor none
-```
-
-如果 QEMU 报 `Failed to get "write" lock`，说明已有另一个 QEMU 正在占用 `disk.img`。先在旧 QEMU 窗口按 `Ctrl+A`，再按 `X` 退出；如果找不到旧窗口，再执行：
-
-```bash
-pkill -f 'qemu-system-riscv64.*disk.img'
-```
-
-如果不想杀旧 QEMU，也可以复制一份运行盘，把启动命令里的 `file=disk.img` 改成 `file=disk-run.img`：
-
-```bash
-cd /root/OScompetition/repos/StarryOS/make
-cp disk.img disk-run.img
-```
-
-进入 StarryOS shell 后运行完整 666 帧评测：
-
-```sh
-cd /root/proj57-act
-export LD_LIBRARY_PATH=/root/proj57-act/lib:/lib
-bin/act_static \
-  --model models/balancedcalib_static_qdq_conv_matmul_keep_action_head_fp16.onnx \
-  --params config/act_params.json \
-  --eval-manifest data/eval_manifest.csv \
-  --dataset-root data/dataset \
-  --threads 1 \
-  --eval-turn-eps 0.005 \
-  --track-allocator
-```
-
-建议先跑一帧 smoke test，确认静态二进制和模型能正常启动：
-
-```sh
-cd /root/proj57-act
-bin/act_static \
-  --model models/balancedcalib_static_qdq_conv_matmul_keep_action_head_fp16.onnx \
-  --image data/dataset/videos/observation.images.fpv/chunk-000/frame_000000.jpg \
-  --params config/act_params.json \
-  --state 0 0 \
-  --threads 1 \
-  --warmup 0 \
-  --runs 1 \
-  --deadband 0.005
-```
-
-QEMU TCG 纯 CPU 推理很慢，完整 666 帧可能需要较长时间；退出 QEMU 用 `Ctrl+A`，再按 `X`。不要使用动态链接的 `bin/act_ort_infer` 做录制演示，当前 StarryOS 环境下它可能在动态加载阶段 segfault。运行过程中如果屏幕反复刷 `starry_kernel::syscall::mm::mmap`，通常是 ONNX Runtime 加载模型和分配内存时触发的内核调试日志；只要没有 `segmentation fault`，且没有回到 `starry:~#`，就说明进程仍在运行。
-
-### 结果文件
-
-官方原模型和板子 StarryOS 真 NPU 的 666 帧 CSV/GIF 保存在 `results/`；QEMU+StarryOS 的 666 帧结果以 QEMU 终端中的 `act_static --eval-manifest` 输出为准。
-
-```bash
-cd /root/OScompetition/task2_rknn
-ls -lh results/666帧_原模型_fp32*.csv
-ls -lh results/666帧_板子-StarryOS真NPU_RGBPack_*.csv
-wc -l results/666帧_原模型_fp32.csv results/666帧_板子-StarryOS真NPU_RGBPack_开环.csv results/666帧_板子-StarryOS真NPU_RGBPack_闭环.csv
-ls -lh results/gif/666帧_原模型_fp32_*.gif results/gif/666帧_板子-StarryOS真NPU_RGBPack_*.gif
-```
+- [`starryos_npu/RESULT_starryos_board.md`](starryos_npu/RESULT_starryos_board.md)
+- [`starryos_npu/上板调试历程.md`](starryos_npu/上板调试历程.md)
 
 ## 目录结构
 
@@ -205,7 +121,7 @@ python3 tools/eval_reference.py
 python3 tools/convert_and_sim.py fp16
 python3 tools/convert_and_sim.py int8
 
-# 4) 混合量化（推荐）：骨干INT8 + transformer FP16
+# 4) 混合量化对照：骨干INT8 + transformer FP16
 python3 tools/hybrid_step1.py
 python3 tools/hybrid_step2.py "/encoder,decoder,state_encoder,action_head,action,/m/Concat" hybrid_backbone
 ```
