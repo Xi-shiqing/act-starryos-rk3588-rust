@@ -43,7 +43,9 @@ RGBPack 版本同一位置为：
 [pack>][pack<][npu>][npu<][rd]frame_000096.jpg ... OK
 ```
 
-所以第 96 帧问题不在 ACT 模型、RKNPU 或 RKNN `rknn_run`，而在 StarryOS 上逐 JPEG 小文件输入链路的累计资源耗尽。RGBPack 是工程绕过方案：把 JPEG 解码前移到服务器，板上只顺序读连续二进制帧。
+所以第 96 帧问题不在 ACT 模型、RKNPU 或 RKNN `rknn_run`，而在 StarryOS 上逐 JPEG 小文件输入链路。它表现为长时间反复读取/解码 JPEG 小文件后，在第 96 帧附近停在输入阶段；现阶段只能判断为该链路存在累计资源耗尽或阻塞问题，尚未精确定位到 StarryOS 内部是哪一个 VFS/ext4/buffer/cache/JPEG 解码相关结构或锁导致卡住。
+
+需要说明：RGBPack 并不是对该 StarryOS JPEG 小文件输入问题的根因修复，而是工程绕过方案。我们把 JPEG 解码和 resize 前移到服务器，板上只顺序读取连续 `frames_rgb224.bin` 二进制帧，从而避开旧输入链路；该方案已证明 StarryOS + 真 RKNPU 可以稳定完成 666 帧推理。旧 JPEG 路径仍保留为后续排查对象。
 
 ## 56 帧早期结果
 
